@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Liberu\Genealogy\Discovery\Filament\Resources;
 
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
@@ -13,6 +14,8 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Liberu\Genealogy\Discovery\Actions\DeleteDiscoveryMatch;
+use Liberu\Genealogy\Discovery\Actions\ReviewDiscoveryMatch;
 use Liberu\Genealogy\Discovery\Filament\Resources\DiscoveryMatchResource\Pages\CreateDiscoveryMatch;
 use Liberu\Genealogy\Discovery\Filament\Resources\DiscoveryMatchResource\Pages\EditDiscoveryMatch;
 use Liberu\Genealogy\Discovery\Filament\Resources\DiscoveryMatchResource\Pages\ListDiscoveryMatchs;
@@ -24,18 +27,14 @@ final class DiscoveryMatchResource extends Resource
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-rectangle-stack';
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Genealogy';
+    protected static string|\UnitEnum|null $navigationGroup = 'Research & Evidence';
 
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
             TextInput::make('name')->required()->maxLength(255),
             Select::make('kind')->options(array_combine(DiscoveryMatch::KINDS, DiscoveryMatch::KINDS))->required(),
-            Select::make('status')->options([
-                'draft' => 'Draft',
-                'active' => 'Active',
-                'completed' => 'Completed',
-            ])->required(),
+            Select::make('status')->options(self::statusOptions())->required(),
             TextInput::make('subject_id')->uuid()->nullable(),
             TextInput::make('related_id')->uuid()->nullable(),
             TextInput::make('confidence')->numeric()->minValue(0)->maxValue(100)->nullable(),
@@ -51,8 +50,9 @@ final class DiscoveryMatchResource extends Resource
             TextColumn::make('status')->badge()->sortable(),
             TextColumn::make('created_at')->dateTime()->sortable(),
         ])->recordActions([
+            Action::make('review')->visible(fn (DiscoveryMatch $record): bool => in_array($record->status, ['draft', 'active'], true))->form([Select::make('status')->options(self::reviewStatusOptions())->required()])->action(fn (DiscoveryMatch $record, array $data): DiscoveryMatch => app(ReviewDiscoveryMatch::class)->execute($record, $data['status'])),
             EditAction::make(),
-            DeleteAction::make(),
+            DeleteAction::make()->action(fn (DiscoveryMatch $record): mixed => app(DeleteDiscoveryMatch::class)->execute($record)),
         ]);
     }
 
@@ -64,5 +64,23 @@ final class DiscoveryMatchResource extends Resource
             'create' => CreateDiscoveryMatch::route('/create'),
             'edit' => EditDiscoveryMatch::route('/{record}/edit'),
         ];
+    }
+
+    /** @return array<string, string> */
+    private static function statusOptions(): array
+    {
+        return self::options(DiscoveryMatch::STATUSES);
+    }
+
+    /** @return array<string, string> */
+    private static function reviewStatusOptions(): array
+    {
+        return self::options(['active', 'completed', 'dismissed']);
+    }
+
+    /** @param array<int, string> $statuses */
+    private static function options(array $statuses): array
+    {
+        return array_combine($statuses, array_map(static fn (string $status): string => ucfirst($status), $statuses));
     }
 }
